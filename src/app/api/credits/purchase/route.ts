@@ -10,7 +10,9 @@ import { applyUserRateLimit } from '@/lib/utils/rate-limit-helper';
 import Stripe from 'stripe';
 import { logger } from '@/lib/logger';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
+function getStripe() {
+  return new Stripe(process.env.STRIPE_SECRET_KEY!);
+}
 
 export async function POST(request: Request) {
   try {
@@ -36,7 +38,7 @@ export async function POST(request: Request) {
 
     const origin = request.headers.get('origin') ?? 'http://localhost:3000';
 
-    const session = await stripe.checkout.sessions.create({
+    const session = await getStripe().checkout.sessions.create({
       mode: 'payment',
       payment_method_types: ['card'],
       line_items: [

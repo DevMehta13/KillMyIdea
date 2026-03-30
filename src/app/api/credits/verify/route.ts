@@ -10,7 +10,9 @@ import { applyUserRateLimit } from '@/lib/utils/rate-limit-helper';
 import Stripe from 'stripe';
 import { logger } from '@/lib/logger';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
+function getStripe() {
+  return new Stripe(process.env.STRIPE_SECRET_KEY!);
+}
 
 export async function POST(request: Request) {
   try {
@@ -30,7 +32,7 @@ export async function POST(request: Request) {
     }
 
     // Retrieve the Checkout session from Stripe
-    const session = await stripe.checkout.sessions.retrieve(sessionId);
+    const session = await getStripe().checkout.sessions.retrieve(sessionId);
 
     if (session.payment_status !== 'paid') {
       return NextResponse.json({ error: 'not_paid', message: 'Payment not completed' }, { status: 400 });

@@ -10,7 +10,9 @@ import { createAdminClient } from '@/lib/supabase/server';
 import { CREDIT_PACKAGES } from '@/lib/constants';
 import Stripe from 'stripe';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
+function getStripe() {
+  return new Stripe(process.env.STRIPE_SECRET_KEY!);
+}
 
 /**
  * Retry wrapper for critical operations (Tier 3 webhook hardening).
@@ -40,7 +42,7 @@ export async function POST(request: Request) {
 
     let event: Stripe.Event;
     try {
-      event = stripe.webhooks.constructEvent(
+      event = getStripe().webhooks.constructEvent(
         rawBody,
         signature,
         process.env.STRIPE_WEBHOOK_SECRET
