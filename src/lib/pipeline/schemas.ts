@@ -11,7 +11,6 @@
  */
 
 import { z } from 'zod';
-import { SCORING_DIMENSIONS } from '@/lib/constants';
 
 // ─── Shared Primitives ────────────────────────────────────────────────────────
 

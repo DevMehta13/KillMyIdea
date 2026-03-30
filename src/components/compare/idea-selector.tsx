@@ -1,7 +1,6 @@
 'use client';
 
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/lib/utils';
@@ -20,7 +19,7 @@ interface IdeaSelectorProps {
   isLoading: boolean;
 }
 
-export function IdeaSelector({ ideas, selected, onToggle, isLoading }: IdeaSelectorProps) {
+export function IdeaSelector({ ideas, selected, onToggle }: IdeaSelectorProps) {
   const completedIdeas = ideas.filter((i) => i.status === 'completed');
 
   if (completedIdeas.length < 2) {

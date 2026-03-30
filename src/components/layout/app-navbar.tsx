@@ -18,7 +18,7 @@ interface AppNavbarProps {
 }
 
 export function AppNavbar({ onMenuClick }: AppNavbarProps) {
-  const { user, profile, isLoading, signOut } = useAuth();
+  const { user, profile, signOut } = useAuth();
 
   const displayName = profile?.display_name || user?.email?.split('@')[0] || 'User';
   const initials = displayName.slice(0, 2).toUpperCase();

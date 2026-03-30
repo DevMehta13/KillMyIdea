@@ -3,7 +3,6 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { Link2, RefreshCw, GitCompare, Check, Loader2 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { PDFExportButton } from './pdf/pdf-export-button';
 import type { ReportContent } from '@/types/database';

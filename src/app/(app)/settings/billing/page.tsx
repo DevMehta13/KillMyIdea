@@ -2,14 +2,12 @@
 
 import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
-import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { CreditPackages } from '@/components/billing/credit-packages';
 import { TransactionHistory } from '@/components/billing/transaction-history';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { useAuth } from '@/lib/auth/hooks';
 import { toast } from 'sonner';
-import { Zap, ArrowRight, Sparkles, Gift } from 'lucide-react';
+import { ArrowRight, Gift } from 'lucide-react';
 
 export default function BillingPage() {
   return (
@@ -25,7 +23,6 @@ function BillingContent() {
   const [error, setError] = useState('');
   const [billingCycle, setBillingCycle] = useState<'one-time' | 'bulk'>('one-time');
   const searchParams = useSearchParams();
-  const { profile } = useAuth();
 
   useEffect(() => {
     const payment = searchParams.get('payment');

@@ -71,6 +71,7 @@ export function useAnalysisPipeline() {
 
   // Prevent double-execution from React Strict Mode
   const runningRef = useRef(false);
+  const runSignalsToReportRef = useRef<(runId: string) => Promise<void>>();
 
   const updateStep = useCallback((step: number, status: PipelineStepStatus['status'], error?: string) => {
     setState((prev) => ({
@@ -81,6 +82,59 @@ export function useAnalysisPipeline() {
       ),
     }));
   }, []);
+
+  /**
+   * Run steps 3-7 (signals → report) for an existing run.
+   * Called after clarification or when no questions needed.
+   */
+  const runSignalsToReport = useCallback(async (runId: string) => {
+    if (runningRef.current && state.phase !== 'running') {
+      // Reset running state for resume
+      runningRef.current = true;
+      setState((prev) => ({ ...prev, phase: 'running', clarificationQuestions: null }));
+    }
+    if (!runningRef.current) {
+      runningRef.current = true;
+      setState((prev) => ({ ...prev, phase: 'running', clarificationQuestions: null }));
+    }
+
+    try {
+      // Step 3: Collect signals
+      updateStep(3, 'active');
+      await callStep('signals', runId);
+      updateStep(3, 'completed');
+
+      // Step 4: Interpret signals
+      updateStep(4, 'active');
+      await callStep('interpret-signals', runId);
+      updateStep(4, 'completed');
+
+      // Step 5: Score
+      updateStep(5, 'active');
+      await callStep('score', runId);
+      updateStep(5, 'completed');
+
+      // Step 6: Verdict
+      updateStep(6, 'active');
+      await callStep('verdict', runId);
+      updateStep(6, 'completed');
+
+      // Step 7: Report
+      updateStep(7, 'active');
+      await callStep('report', runId);
+      updateStep(7, 'completed');
+
+      setState((prev) => ({ ...prev, phase: 'completed' }));
+    } catch (error) {
+      const msg = (error as Error).message;
+      setState((prev) => ({ ...prev, phase: 'failed', error: msg }));
+    } finally {
+      runningRef.current = false;
+    }
+  }, [updateStep, state.phase]);
+
+  // Keep ref in sync so runInterpretAndClarify can call without circular dep
+  runSignalsToReportRef.current = runSignalsToReport;
 
   /**
    * Run steps 1-2 (interpret + clarify) for an existing run.
@@ -137,63 +191,13 @@ export function useAnalysisPipeline() {
       }
 
       // No questions — continue to steps 3-7
-      await runSignalsToReport(runId);
+      await runSignalsToReportRef.current?.(runId);
     } catch (error) {
       const msg = (error as Error).message;
       setState((prev) => ({ ...prev, phase: 'failed', error: msg }));
       runningRef.current = false;
     }
   }, [updateStep]);
-
-  /**
-   * Run steps 3-7 (signals → report) for an existing run.
-   * Called after clarification or when no questions needed.
-   */
-  const runSignalsToReport = useCallback(async (runId: string) => {
-    if (runningRef.current && state.phase !== 'running') {
-      // Reset running state for resume
-      runningRef.current = true;
-      setState((prev) => ({ ...prev, phase: 'running', clarificationQuestions: null }));
-    }
-    if (!runningRef.current) {
-      runningRef.current = true;
-      setState((prev) => ({ ...prev, phase: 'running', clarificationQuestions: null }));
-    }
-
-    try {
-      // Step 3: Collect signals
-      updateStep(3, 'active');
-      await callStep('signals', runId);
-      updateStep(3, 'completed');
-
-      // Step 4: Interpret signals
-      updateStep(4, 'active');
-      await callStep('interpret-signals', runId);
-      updateStep(4, 'completed');
-
-      // Step 5: Score
-      updateStep(5, 'active');
-      await callStep('score', runId);
-      updateStep(5, 'completed');
-
-      // Step 6: Verdict
-      updateStep(6, 'active');
-      await callStep('verdict', runId);
-      updateStep(6, 'completed');
-
-      // Step 7: Report
-      updateStep(7, 'active');
-      await callStep('report', runId);
-      updateStep(7, 'completed');
-
-      setState((prev) => ({ ...prev, phase: 'completed' }));
-    } catch (error) {
-      const msg = (error as Error).message;
-      setState((prev) => ({ ...prev, phase: 'failed', error: msg }));
-    } finally {
-      runningRef.current = false;
-    }
-  }, [updateStep, state.phase]);
 
   /**
    * Retry from the failed step (DEC-024).

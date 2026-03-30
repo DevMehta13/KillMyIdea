@@ -27,14 +27,14 @@ function SeverityDot({ level }: { level: string }) {
   return <span className={cn('size-1.5 shrink-0 rounded-full', colors[level] ?? colors.medium)} />;
 }
 
-function EvidenceRef({ ref: evidenceRef }: { ref: string }) {
-  if (!evidenceRef) return null;
-  const isUrl = evidenceRef.startsWith('http');
+function EvidenceRef({ source }: { source: string }) {
+  if (!source) return null;
+  const isUrl = source.startsWith('http');
 
   if (isUrl) {
     return (
       <a
-        href={evidenceRef}
+        href={source}
         target="_blank"
         rel="noopener noreferrer"
         className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
@@ -47,7 +47,7 @@ function EvidenceRef({ ref: evidenceRef }: { ref: string }) {
 
   return (
     <span className="text-[11px] text-muted-foreground">
-      {evidenceRef.length > 80 ? evidenceRef.slice(0, 80) + '...' : evidenceRef}
+      {source.length > 80 ? source.slice(0, 80) + '...' : source}
     </span>
   );
 }
@@ -87,7 +87,7 @@ export function FlagsList({ redFlags, greenFlags }: FlagsListProps) {
                       <span className="text-[10px] font-medium uppercase tracking-wider text-[#d47070]/70 dark:text-[#d47070]/70">
                         {flag.severity}
                       </span>
-                      <EvidenceRef ref={flag.evidence_ref} />
+                      <EvidenceRef source={flag.evidence_ref} />
                     </div>
                   </div>
                 </div>
@@ -131,7 +131,7 @@ export function FlagsList({ redFlags, greenFlags }: FlagsListProps) {
                       <span className="text-[10px] font-medium uppercase tracking-wider text-[#6ec88e]/70 dark:text-[#6ec88e]/70">
                         {flag.strength}
                       </span>
-                      <EvidenceRef ref={flag.evidence_ref} />
+                      <EvidenceRef source={flag.evidence_ref} />
                     </div>
                   </div>
                 </div>

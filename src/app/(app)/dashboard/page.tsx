@@ -11,8 +11,6 @@ import {
   Search, Filter, ChevronRight, Sparkles, Target, Shield
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
-import { VERDICT_LABELS, VERDICT_COLORS } from '@/lib/constants';
-import type { Verdict } from '@/types/database';
 
 const ResponsiveContainer = dynamic(() => import('recharts').then(m => m.ResponsiveContainer), { ssr: false });
 const AreaChart = dynamic(() => import('recharts').then(m => m.AreaChart), { ssr: false });

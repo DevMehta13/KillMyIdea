@@ -11,7 +11,6 @@
  */
 
 import { GoogleGenerativeAI, type GenerationConfig } from '@google/generative-ai';
-import { logger } from '@/lib/logger';
 
 /** Timeout for all Gemini API calls (30 seconds). */
 const LLM_TIMEOUT_MS = 30_000;

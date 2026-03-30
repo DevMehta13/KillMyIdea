@@ -37,7 +37,7 @@
  *   no confidence, which keeps the score from being dominated by 1-2 dimensions.
  */
 
-import type { AnalysisScores, DimensionScore, IdeaCategory, SignalCategory } from '@/types/database';
+import type { AnalysisScores, DimensionScore, IdeaCategory } from '@/types/database';
 import type { DimensionInsight } from '@/types/pipeline';
 import { DEFAULT_SCORING_WEIGHTS, SCORING_DIMENSIONS } from '@/lib/constants';
 import { getCategoryWeightAdjustments } from './category-weights';

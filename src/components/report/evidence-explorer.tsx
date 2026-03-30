@@ -2,7 +2,6 @@
 
 import { useMemo, useState } from 'react';
 import { ExternalLink, ChevronDown, Search, Globe, MessageSquare, TrendingUp, Brain } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { EvidenceBadge } from './evidence-badge';
 

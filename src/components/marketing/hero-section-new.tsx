@@ -51,7 +51,11 @@ function useScrollReveal() {
 /** Returns true after first client render. Used to defer animation classes to avoid hydration mismatch. */
 function useMounted() {
   const [m, setM] = React.useState(false);
-  useEffect(() => { setM(true); }, []);
+  useEffect(() => {
+    // Use requestAnimationFrame to avoid synchronous setState in effect body
+    const id = requestAnimationFrame(() => setM(true));
+    return () => cancelAnimationFrame(id);
+  }, []);
   return m;
 }
 

@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/auth/hooks';
-import { LayoutDashboard, Lightbulb, GitCompareArrows, Settings, Shield, BarChart3, MessageSquare, Zap, ArrowUpRight } from 'lucide-react';
+import { LayoutDashboard, Lightbulb, GitCompareArrows, Settings, Shield, BarChart3, Zap, ArrowUpRight } from 'lucide-react';
 
 const MENU_ITEMS = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },

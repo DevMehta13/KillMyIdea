@@ -5,7 +5,7 @@
  * Clamps vagueness_score to [0, 1] range.
  */
 
-import type { StructuredSummary, IdeaCategory } from '@/types/database';
+import type { StructuredSummary } from '@/types/database';
 import type { InterpretInput, InterpretOutput } from '@/types/pipeline';
 import { callWithFallback } from '@/lib/pipeline/ai/retry';
 import { classifyIdeaCategory } from '@/lib/pipeline/ml/categorizer';

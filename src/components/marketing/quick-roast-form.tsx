@@ -2,12 +2,9 @@
 
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
-import { Alert, AlertDescription } from '@/components/ui/alert';
 import { INPUT_LIMITS } from '@/lib/constants';
 import { Loader2, Zap } from 'lucide-react';
 import { toast } from 'sonner';
-import Link from 'next/link';
 import { ReportPreview } from '@/components/report/report-preview';
 import { trackEvent } from '@/lib/analytics';
 
