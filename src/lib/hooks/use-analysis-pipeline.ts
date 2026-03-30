@@ -71,7 +71,7 @@ export function useAnalysisPipeline() {
 
   // Prevent double-execution from React Strict Mode
   const runningRef = useRef(false);
-  const runSignalsToReportRef = useRef<(runId: string) => Promise<void>>();
+  const runSignalsToReportRef = useRef<(runId: string) => Promise<void>>(undefined);
 
   const updateStep = useCallback((step: number, status: PipelineStepStatus['status'], error?: string) => {
     setState((prev) => ({
