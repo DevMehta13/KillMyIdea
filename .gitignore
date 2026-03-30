@@ -24,14 +24,20 @@
 .DS_Store
 *.pem
 
+# claude code
+.claude/
+CLAUDE.md
+AGENTS.md
+
 # debug
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
+# env files
 .env*
+!.env.example
 
 # vercel
 .vercel

@@ -54,7 +54,7 @@ Rules governing how this project is built. All contributors (human and AI) must 
 ## Signal & Provider Architecture
 
 19. **Signal collection must be modular.** All signal providers implement a common interface (`src/lib/pipeline/signals/types.ts`). Adding or removing a provider must not require changes to pipeline steps, scoring, or report generation (DEC-011).
-20. **HackerNews is the only required v1 provider.** Do not add SerpAPI, Reddit, or other paid providers unless explicitly approved. The pipeline must work with HackerNews alone.
+20. **HackerNews, Serper.dev, and Google Trends are the required Tier 1 providers.** Serper.dev and Google Trends degrade gracefully when API keys are missing or quotas are exhausted. The pipeline must still work with HackerNews alone as the minimum (DEC-011, DEC-018, DEC-019).
 21. **Signal failure must not kill the analysis.** If a signal provider is unavailable, continue the pipeline with remaining evidence (user input, LLM interpretation, clarification answers). Lower confidence on affected dimensions and show a partial-signal warning in the report. Only the existing "4+ low-confidence dimensions" guardrail should produce Insufficient Data — never a single provider failure (DEC-011).
 22. **Apply category-source affinity.** When HackerNews signals are weak because the idea category is outside HN's natural strength (e.g., healthcare, hardware), reduce community-signal impact on scoring rather than penalizing the idea. The scoring engine must use the category-source affinity map (DEC-011).
 23. **Category classification uses LLM inline.** Do not add HuggingFace, ML model loading, or Python dependencies for classification unless explicitly approved (DEC-016).
@@ -69,3 +69,27 @@ Rules governing how this project is built. All contributors (human and AI) must 
 29. **Use explicit types.** No `any` types. No implicit type coercion.
 30. **Prefer existing abstractions.** Check `src/components/ui/` and `src/lib/` before creating new utilities.
 31. **No hardcoded fake data in components.** Use proper data fetching, loading states, and empty states.
+
+## Tier 1 Rules
+
+32. **Vagueness blocking is mandatory.** Ideas with `vagueness_score >= 0.7` must complete clarification before signal collection (Step 3). The skip button must be hidden for vagueness-blocked ideas. PRD Section 6 compliance (DEC-021).
+33. **Evidence refs must be verifiable.** All `evidence_ref` fields in flags and dimension_reasoning must contain real URLs or be explicitly labeled "LLM Analysis (unverified)". Never present LLM-generated text as though it links to a real source (DEC-022).
+34. **Signal strength must be grounded.** Step 4 must receive pre-computed evidence baselines from `evidence-quantifier.ts`. LLM-assigned `signal_strength` values must stay within +/-0.15 of the computed baseline (DEC-020).
+35. **Input sanitization required.** All user text inputs must be sanitized via `sanitizeInput()` from `src/lib/utils/sanitize.ts` before storing to DB or passing to LLM prompts. Never trust raw user input (DEC-031).
+36. **Pipeline steps must track completion.** Every pipeline route handler must call `markStepCompleted(runId, step)` on success. This enables retry-from-failed-step functionality (DEC-024).
+
+## Tier 3 Rules
+
+37. **All API routes must be rate-limited.** Every API endpoint must call `applyUserRateLimit()` or `applyIpRateLimit()` from `rate-limit-helper.ts` after auth check. Use the appropriate tier from `RATE_LIMIT_TIERS` (DEC-034).
+38. **Use structured logging.** Use `logger` from `src/lib/logger.ts` instead of `console.*` in all server-side code. Include contextual metadata (action, provider, userId) (DEC-032).
+
+## Tier 4 Rules
+
+39. **All pages must have metadata.** Server component pages must export `metadata` or `generateMetadata`. Use the `title.template` pattern from root layout (DEC-037).
+40. **Track conversion events.** Key user actions must call `trackEvent()` from `src/lib/analytics.ts`. See DEC-038 for the 7 required events.
+
+## Security Rules
+
+41. **Verify ownership on all pipeline routes.** Every `/api/pipeline/*` endpoint verifies that the `analysis_run` belongs to the authenticated user's idea via `verifyRunOwnership()` before processing. Implemented in all 7 pipeline routes.
+42. **Fetch timeouts on external API calls.** All signal provider HTTP requests use 10s AbortController timeout. All LLM API calls (Gemini/Groq) use 30s timeout. Implemented in gemini-client.ts, groq-client.ts, and all signal providers.
+43. **Validate LLM response schemas.** All pipeline steps (1, 2, 4, 7) validate LLM JSON output against Zod schemas via `safeParseLLMResponse()` from `src/lib/pipeline/schemas.ts`. Malformed responses throw descriptive errors for retry logic.

@@ -55,6 +55,8 @@ Submit an idea for a quick, public roast. No auth required.
 - Creates a `reports` row with `report_type='quick_roast'`
 - Result stored so it can be shared via `/roast/[shareId]`
 
+**Partial success:** If the roast is generated but storing the idea/report fails, the endpoint returns `200` with `id: null` and the roast. The client receives the roast but cannot share it.
+
 ---
 
 ## Ideas Module
@@ -81,6 +83,8 @@ Create a new idea.
 - `raw_input` required, 10-5000 chars
 - If `quickRoastId` provided, verify it exists and is a Quick Roast with no user_id (or same user_id)
 
+**Known limitation:** `quickRoastId` is accepted by the schema but the linking logic is not implemented. The parameter is currently ignored.
+
 **Response (201):**
 ```json
 {
@@ -104,10 +108,7 @@ List the authenticated user's ideas.
 
 **Auth:** Required
 
-**Query params:**
-- `status` (optional): filter by status
-- `page` (optional, default 1)
-- `limit` (optional, default 20, max 50)
+**Query params:** None currently implemented. All ideas returned sorted by created_at DESC.
 
 **Response (200):**
 ```json
@@ -119,20 +120,17 @@ List the authenticated user's ideas.
       "status": "draft | submitted | analyzing | completed | failed",
       "category": "string | null",
       "is_quick_roast": false,
-      "latest_verdict": "pursue | refine | ... | null",
-      "latest_score": 7.2,
-      "analysis_count": 2,
       "created_at": "ISO 8601",
       "updated_at": "ISO 8601"
     }
   ],
   "total": 42,
   "page": 1,
-  "limit": 20
+  "limit": 50
 }
 ```
 
-**Notes:** Excludes soft-deleted ideas. `latest_verdict` and `latest_score` are from the most recent completed analysis run.
+**Known limitation:** Pagination, status filtering, `latest_verdict`, `latest_score`, and `analysis_count` are documented in the PRD but not yet implemented. The endpoint returns all non-deleted ideas.
 
 ---
 
@@ -159,7 +157,6 @@ Get a single idea with its versions and analysis runs.
     {
       "id": "uuid",
       "version_number": 1,
-      "structured_summary": {},
       "clarification_status": "pending | answered | skipped",
       "created_at": "ISO 8601"
     }
@@ -177,6 +174,8 @@ Get a single idea with its versions and analysis runs.
   ]
 }
 ```
+
+**Known limitation:** `structured_summary` is stored in the database but not included in this response.
 
 **Errors:**
 - 401: Not authenticated
@@ -203,7 +202,7 @@ Update an idea (title, raw_input, target_user, problem_statement).
 
 **Validation:** Same rules as POST. At least one field must be provided.
 
-**Response (200):** Updated idea object.
+**Response (200):** Updated idea object with fields: id, title, raw_input, target_user, problem_statement, status, category. Note: `fields_changed` is not currently included in the response.
 
 ---
 
@@ -223,6 +222,10 @@ Soft-delete an idea.
 ---
 
 ## Analysis Pipeline Module
+
+**Security:** All pipeline routes verify run ownership before processing. A user cannot operate on another user's analysis run.
+
+**Reliability:** All LLM responses are validated with Zod schemas. All external API calls have timeouts (30s for LLM, 10s for signals). Gemini calls retry with exponential backoff and fall back to Groq.
 
 ### `POST /api/ideas/[id]/analyze`
 
@@ -265,6 +268,7 @@ Start a new analysis. Deducts credits.
 Run pipeline step 1: interpret the raw idea.
 
 **Auth:** Required (owner of the idea)
+Ownership verified: the analysis run must belong to the authenticated user's idea. Returns 403 if not.
 
 **Request:**
 ```json
@@ -290,9 +294,28 @@ Run pipeline step 1: interpret the raw idea.
     "vagueness_flags": ["string"],
     "vagueness_score": 0.0
   },
-  "category": "b2b_saas (from LLM inline classification — DEC-016)"
+  "category": "b2b_saas (from LLM inline classification — DEC-016)",
+  "vagueness_blocked": false
 }
 ```
+
+**Vagueness blocking (DEC-021):** When `vagueness_score >= 0.7`, the response includes `"vagueness_blocked": true`. The client must route the user to clarification before calling `/api/pipeline/signals`. The pipeline signals endpoint returns `400` with `"error": "vagueness_blocked"` if the user attempts to skip.
+
+```json
+{
+  "error": "vagueness_blocked",
+  "message": "Idea is too vague. Complete clarification before proceeding.",
+  "vagueness_score": 0.82,
+  "threshold": 0.7
+}
+```
+
+**Errors:**
+- 400: Invalid run status or validation error
+- 401: Not authenticated
+- 403: Analysis run does not belong to authenticated user
+- 404: Analysis run not found
+- 500: LLM call failed
 
 ---
 
@@ -301,6 +324,7 @@ Run pipeline step 1: interpret the raw idea.
 Run pipeline step 2: generate clarification questions.
 
 **Auth:** Required (owner)
+Ownership verified: returns 403 if the run does not belong to the authenticated user.
 
 **Request:**
 ```json
@@ -324,6 +348,13 @@ Run pipeline step 2: generate clarification questions.
   "version_id": "uuid (idea_version with questions stored)"
 }
 ```
+
+**Errors:**
+- 400: Invalid run status or validation error
+- 401: Not authenticated
+- 403: Analysis run does not belong to authenticated user
+- 404: Analysis run not found
+- 500: LLM call failed
 
 ---
 
@@ -363,6 +394,7 @@ Submit clarification answers. Resumes pipeline.
 Run pipeline step 3: collect market signals.
 
 **Auth:** Required (owner)
+Ownership verified: returns 403 if the run does not belong to the authenticated user.
 
 **Request:**
 ```json
@@ -375,13 +407,24 @@ Run pipeline step 3: collect market signals.
 ```json
 {
   "status": "collecting_signals",
-  "signals_collected": 8,
-  "sources_used": ["hackernews"],
+  "signals_collected": 14,
+  "sources_used": ["hackernews", "serper", "google_trends"],
   "sources_failed": []
 }
 ```
 
-**Notes:** Signal collection is best-effort. If a source fails, the pipeline continues with available signals. Failed sources are logged.
+**Notes:**
+- Signal collection is best-effort. If a source fails, the pipeline continues with available signals. Failed sources are logged.
+- Serper.dev requires `SERPER_API_KEY` env var. If not set or quota exhausted, skipped gracefully (DEC-018).
+- SerpAPI Trends requires `SERPAPI_KEY` env var. If not set or quota exhausted, skipped gracefully (DEC-019).
+- Returns `400` with `"error": "vagueness_blocked"` if vagueness threshold not cleared (DEC-021).
+
+**Errors:**
+- 400: Invalid run status, validation error, or vagueness blocked
+- 401: Not authenticated
+- 403: Analysis run does not belong to authenticated user
+- 404: Analysis run not found
+- 500: Signal collection failed
 
 ---
 
@@ -390,6 +433,7 @@ Run pipeline step 3: collect market signals.
 Run pipeline step 4: interpret signals with LLM.
 
 **Auth:** Required (owner)
+Ownership verified: returns 403 if the run does not belong to the authenticated user.
 
 **Request:**
 ```json
@@ -414,6 +458,13 @@ Run pipeline step 4: interpret signals with LLM.
 }
 ```
 
+**Errors:**
+- 400: Invalid run status or validation error
+- 401: Not authenticated
+- 403: Analysis run does not belong to authenticated user
+- 404: Analysis run not found
+- 500: LLM call failed
+
 ---
 
 ### `POST /api/pipeline/score`
@@ -421,6 +472,7 @@ Run pipeline step 4: interpret signals with LLM.
 Run pipeline step 5: deterministic scoring.
 
 **Auth:** Required (owner)
+Ownership verified: returns 403 if the run does not belong to the authenticated user.
 
 **Request:**
 ```json
@@ -441,6 +493,13 @@ Run pipeline step 5: deterministic scoring.
 }
 ```
 
+**Errors:**
+- 400: Invalid run status or validation error
+- 401: Not authenticated
+- 403: Analysis run does not belong to authenticated user
+- 404: Analysis run not found
+- 500: Scoring computation failed
+
 ---
 
 ### `POST /api/pipeline/verdict`
@@ -448,6 +507,7 @@ Run pipeline step 5: deterministic scoring.
 Run pipeline step 6: determine verdict with guardrails.
 
 **Auth:** Required (owner)
+Ownership verified: returns 403 if the run does not belong to the authenticated user.
 
 **Request:**
 ```json
@@ -469,6 +529,13 @@ Run pipeline step 6: determine verdict with guardrails.
 
 **Notes:** `raw_verdict` is the score-based verdict before guardrail overrides. If no override was applied, `override_applied` and `override_reason` are null.
 
+**Errors:**
+- 400: Invalid run status or validation error
+- 401: Not authenticated
+- 403: Analysis run does not belong to authenticated user
+- 404: Analysis run not found
+- 500: Verdict computation failed
+
 ---
 
 ### `POST /api/pipeline/report`
@@ -476,6 +543,7 @@ Run pipeline step 6: determine verdict with guardrails.
 Run pipeline step 7: generate full report.
 
 **Auth:** Required (owner)
+Ownership verified: returns 403 if the run does not belong to the authenticated user.
 
 **Request:**
 ```json
@@ -493,6 +561,13 @@ Run pipeline step 7: generate full report.
 }
 ```
 
+**Errors:**
+- 400: Invalid run status or validation error
+- 401: Not authenticated
+- 403: Analysis run does not belong to authenticated user
+- 404: Analysis run not found
+- 500: Report generation failed
+
 ---
 
 ### `GET /api/ideas/[id]/analysis/[runId]/status`
@@ -508,6 +583,7 @@ Poll current analysis status.
   "status": "collecting_signals",
   "current_step": 3,
   "total_steps": 7,
+  "completed_steps": [1, 2, 3],
   "started_at": "ISO 8601",
   "error": null
 }
@@ -523,13 +599,24 @@ Get the latest completed report for an idea.
 
 **Query params:**
 - `run_id` (optional): specific analysis run. Defaults to latest completed.
+- `preview` (optional): if `true`, returns limited data for teaser/upsell (DEC-023)
 
-**Response (200):**
+**Response (200) — full mode:**
 ```json
 {
   "report": { "...full report content..." },
   "analysis_run": { "...analysis run metadata..." },
   "signals": [ "...signal evidence rows..." ]
+}
+```
+
+**Response (200) — preview mode (`?preview=true`):**
+```json
+{
+  "verdict": "refine",
+  "overall_score": 6.2,
+  "available_sections": ["executive_summary", "verdict", "dimension_reasoning", "assumptions", "flags", "next_steps", "evidence"],
+  "requires_credits": true
 }
 ```
 
@@ -558,7 +645,7 @@ Get current credit balance.
 
 ### `POST /api/credits/purchase`
 
-Create a Razorpay order for credit purchase.
+Create a Stripe Checkout session for credit purchase.
 
 **Auth:** Required
 
@@ -570,62 +657,62 @@ Create a Razorpay order for credit purchase.
 ```
 
 **Validation:**
-- `package_id` must match a valid package in `admin_settings.credit_packages`
+- `package_id` must match a valid package in constants
 
 **Response (200):**
 ```json
 {
-  "order_id": "razorpay_order_id",
-  "amount": 9900,
-  "currency": "INR",
-  "key_id": "razorpay_key_id (public)"
+  "url": "https://checkout.stripe.com/c/pay/cs_test_..."
 }
 ```
+
+**Notes:** Client redirects to the returned URL. Stripe handles the payment UI. On success, Stripe redirects back to `/settings/billing?payment=success&session_id={CHECKOUT_SESSION_ID}`.
 
 ---
 
 ### `POST /api/credits/verify`
 
-Verify Razorpay payment and add credits.
+Verify a Stripe Checkout session and add credits.
 
 **Auth:** Required
 
 **Request:**
 ```json
 {
-  "razorpay_order_id": "string",
-  "razorpay_payment_id": "string",
-  "razorpay_signature": "string"
+  "session_id": "cs_test_..."
 }
 ```
 
 **Validation:**
-- Verify signature using HMAC SHA256 with Razorpay key secret
-- Order must exist and belong to this user
+- Retrieve session from Stripe API
+- Check `payment_status === 'paid'`
+- Verify `metadata.user_id` matches authenticated user
+- Idempotency: check if session_id already exists in credit_transactions
 
 **Response (200):**
 ```json
 {
   "credits_added": 20,
   "new_balance": 25,
-  "transaction_id": "uuid"
+  "transaction_id": "cs_test_..."
 }
 ```
 
 **Errors:**
-- 400: Invalid signature (payment verification failed)
+- 400: Payment not completed
+- 403: Session belongs to different user
 - 409: Payment already processed (idempotency)
 
 ---
 
-### `POST /api/webhooks/razorpay`
+### `POST /api/webhooks/stripe`
 
-Razorpay webhook handler.
+Stripe webhook handler.
 
-**Auth:** Razorpay webhook signature verification
+**Auth:** Stripe webhook signature verification (`stripe-signature` header)
 
 **Notes:**
-- Handles `payment.captured`, `payment.failed` events
+- Handles `checkout.session.completed` events
 - Ensures credits are added even if client-side verify was missed
 - Idempotent — checks if transaction already exists before adding credits
 
@@ -706,6 +793,8 @@ Fetch a shared report. No auth required.
 ```
 
 **Side effect:** Increments `share_links.view_count`.
+
+**Known bug:** Signal evidence query uses `shareLink.report_id` instead of the analysis run's ID to fetch `signal_evidence`. This means signals may be empty for shared full reports.
 
 **Errors:**
 - 404: Share link not found or expired
@@ -839,31 +928,133 @@ Manually adjust a user's credits.
 }
 ```
 
+**Response (200):**
+```json
+{
+  "new_balance": 15
+}
+```
+
 ### `GET /api/admin/prompts`
 
-List prompt templates with versions.
+List all admin settings (key-value pairs from `admin_settings` table).
 
-### `PATCH /api/admin/prompts/[key]`
+**Response (200):**
+```json
+{
+  "settings": [
+    {
+      "key": "free_signup_credits",
+      "value": 3,
+      "updated_at": "ISO 8601"
+    }
+  ]
+}
+```
 
-Update a prompt template. Creates a new version.
+### `PATCH /api/admin/prompts`
+
+Upsert an admin setting. Creates or updates a key-value pair.
+
+**Request:**
+```json
+{
+  "key": "string (required)",
+  "value": "any (required)"
+}
+```
+
+**Response (200):**
+```json
+{
+  "key": "string",
+  "value": "any",
+  "updated_at": "ISO 8601"
+}
+```
+
+**Note:** Despite the `/prompts` URL path, this endpoint manages generic admin settings (prompt templates, feature flags, scoring weights, etc.) via the `admin_settings` table. There is no prompt versioning — upsert overwrites the previous value.
 
 ### `GET /api/admin/moderation`
 
-List shared content for review.
+List shared content for review. Returns the 50 most recent share links with associated report and idea data.
+
+**Response (200):**
+```json
+{
+  "shares": [
+    {
+      "id": "uuid",
+      "slug": "string",
+      "visibility": "unlisted | public",
+      "view_count": 0,
+      "created_at": "ISO 8601",
+      "reports": { "report_type": "string", "idea_id": "uuid" },
+      "ideas": { "title": "string", "user_id": "uuid | null" }
+    }
+  ]
+}
+```
 
 ---
 
-## Draft Status
+## Feedback Module
+
+### `POST /api/feedback`
+
+Submit feedback on analysis quality. Rate limited: 5 per hour per user.
+
+**Auth:** Required
+
+**Rate limit:** 5 requests per user per hour
+
+**Request:**
+```json
+{
+  "analysis_run_id": "uuid (optional — link to specific analysis)",
+  "type": "inaccurate | unhelpful | other",
+  "message": "string (optional, max 2000 chars)"
+}
+```
+
+**Response (201):**
+```json
+{
+  "status": "submitted"
+}
+```
+
+**Errors:**
+- 400: Validation error (invalid type, message too long)
+- 401: Not authenticated
+- 429: Rate limit exceeded
+- 500: Database error
+
+---
+
+## Implementation Status
 
 | Module | Contract Status | Notes |
 |--------|----------------|-------|
-| Quick Roast | **Draft** | Rate limiting approach needs validation |
-| Ideas | **Draft** | Core CRUD, stable |
-| Pipeline | **Draft** | Client-driven sequential confirmed (DEC-009). Signal source = HackerNews only (DEC-011). |
-| Credits | **Draft** | 3 free credits on signup confirmed (DEC-010) |
-| Share | **Draft** | No PDF export in v1 (DEC-014) |
-| Compare | **Draft** | AI takeaway prompt not defined |
-| User Profile | **Draft** | Minimal scope |
-| Admin | **Draft** | Lower priority (P1 in PRD). No SerpAPI budget tracking needed. |
+| Quick Roast | **Implemented** | Rate limiting active. Partial success behavior on storage failure. |
+| Ideas | **Implemented** | Pagination and enriched fields not yet implemented. |
+| Pipeline | **Implemented** | Client-driven sequential (DEC-009). 4 signal sources active. |
+| Credits | **Implemented** | Stripe Checkout flow. Legacy Razorpay column names. |
+| Share | **Implemented** | PDF export available via @react-pdf/renderer (DEC-027). |
+| Compare | **Implemented** | AI takeaway via LLM. |
+| User Profile | **Implemented** | Display name only. |
+| Admin | **Implemented** | Settings management via admin_settings table. |
+| Feedback | **Implemented** | Quality reports with rate limiting (DEC-039). |
 
-All contracts are drafts. They will be finalized during the implementation phase for each module. All previously pending decisions are now resolved (see DECISIONS.md DEC-009 through DEC-016).
+**Rate limit errors (DEC-029):** Any endpoint may return `429 Too Many Requests` with body:
+```json
+{
+  "error": "rate_limited",
+  "message": "Too many requests. Try again later.",
+  "retryAfter": 45
+}
+```
+
+**Report JSONB note (DEC-026):** Report `content` JSONB may include `clarification_qa` array: `[{ "question": "...", "answer": "...", "dimension": "demand" }]`
+
+All modules are implemented. Known limitations and bugs are documented inline. All previously pending decisions are now resolved (see DECISIONS.md DEC-009 through DEC-016).

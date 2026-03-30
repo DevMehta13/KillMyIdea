@@ -13,16 +13,16 @@ References:
 
 | Token | Value | Usage |
 |-------|-------|-------|
-| Brand primary | #1E3A5F (deep navy) | Headers, navbars, primary buttons |
-| Pursue | #22C55E (green) | Verdict badge, score bars |
-| Refine | #F59E0B (amber) | Verdict badge, score bars |
-| Test First | #3B82F6 (blue) | Verdict badge, score bars |
-| Drop | #EF4444 (red) | Verdict badge, score bars |
+| Brand primary | #7c6ce7 (soft lavender) | Headers, navbars, primary buttons |
+| Pursue | #22C55E (green); displayed as #6ec88e in dark theme | Verdict badge, score bars |
+| Refine | #F59E0B (amber); displayed as #d4a06b in dark theme | Verdict badge, score bars |
+| Test First | #3B82F6 (blue); displayed as #7ea3d4 in dark theme | Verdict badge, score bars |
+| Drop | #EF4444 (red); displayed as #d47070 in dark theme | Verdict badge, score bars |
 | Insufficient Data | #6B7280 (gray) | Verdict badge, score bars |
 | Heading font | Inter | All headings and body text |
 | Mono font | JetBrains Mono | Scores, data values, code |
 | Base text | 14px (text-sm) | Information density |
-| Dark mode | None in v1 | |
+| Dark mode | Warm dark theme applied globally | Background: #1a1a1c, Surface: #222224, Cards: bg-white/[0.05] with border-white/[0.08] (glassmorphism) |
 
 ---
 
@@ -64,7 +64,7 @@ References:
 
 **Components:**
 - `MarketingNavbar` — Logo, Pricing link, Sign In, Get Started button
-- `HeroSection` — Headline ("Your idea might be terrible. Let's find out."), subhead, embedded Quick Roast form
+- `HeroSectionNew` — Enhanced hero with headline, embedded Quick Roast form, floating cards, FAQ section
 - `QuickRoastForm` — Textarea (max 500 chars), character counter, submit button, result card
 - `HowItWorks` — 3-step visual: Paste idea → Get roast → Go deeper
 - `PricingPreview` — Credit package cards (link to /pricing)
@@ -86,13 +86,15 @@ References:
 
 **Components:**
 - `MarketingNavbar`
-- `PlanComparison` — Free vs Paid feature comparison table
-- `CreditPackages` — 3 cards (5/INR99, 20/INR299, 50/INR599) with buy buttons
+- Plan comparison (inline) — Free vs Paid feature comparison with FREE_FEATURES and PAID_FEATURES arrays
+- Credit packages (inline) — 3 cards (5/INR99, 20/INR299, 50/INR599) with buy buttons
 - `Footer`
+
+Note: Pricing page implements comparison and packages inline, not as separate component files.
 
 **States:**
 - Default: all packages visible
-- Authenticated: buy buttons active (link to Razorpay checkout)
+- Authenticated: buy buttons active (redirect to Stripe Checkout)
 - Unauthenticated: buy buttons link to /signup
 
 **API dependencies:** None (static content, packages from constants)
@@ -145,10 +147,10 @@ References:
 **Components:**
 - `AppNavbar` — Logo, credit balance pill, user avatar dropdown
 - `AppSidebar` — Dashboard (active), My Ideas, Compare, Settings
-- `CreditBalanceCard` — Current balance, "Buy Credits" link
-- `QuickActions` — "Analyze New Idea" primary button
-- `IdeasList` — Table/card list of user's ideas with status badges and verdict badges
-- `EmptyState` — "No ideas yet" with CTA if user has no ideas
+- `CreditBalanceCard` — Current balance, "Buy Credits" link (separate component)
+- Quick actions (inline) — "Analyze New Idea" primary button
+- `IdeasList` — Table/card list of user's ideas with status badges and verdict badges (separate component)
+- Empty state (inline) — "No ideas yet" with CTA if user has no ideas
 
 **States:**
 - Empty: no ideas → show empty state with CTA
@@ -164,11 +166,13 @@ References:
 **Purpose:** Multi-step form to submit a new idea for analysis.
 
 **Components:**
-- `StepIndicator` — Steps: Describe → Details → Review → Submit
-- `IdeaInputStep` — Textarea for raw idea (or Quick Roast ID input)
-- `IdeaDetailsStep` — Target user, problem statement (optional, guided)
-- `IdeaReviewStep` — Show AI interpretation preview, allow edits
-- `IdeaSubmitStep` — Confirm, show credit cost (1 credit), submit
+- Step indicator (inline) — Steps: Describe → Details → Review → Submit
+- Step 1: Idea input — Textarea for raw idea description
+- Step 2: Details — Target user, problem statement (optional, guided)
+- Step 3: Review — Show summary, allow edits
+- Step 4: Submit — Confirm, show credit cost (1 credit), submit
+
+Note: All wizard steps are implemented inline within the page component, not as separate component files.
 
 **States:**
 - Step 1: textarea for idea description
@@ -187,10 +191,11 @@ References:
 **Purpose:** View a single idea with its history and analysis runs.
 
 **Components:**
-- `IdeaSummaryCard` — Title, raw input, target user, category badge, status
-- `VersionTimeline` — List of idea versions with timestamps
-- `AnalysisRunsList` — List of analysis runs with status/verdict badges
+- Idea summary (inline) — Title, raw input, target user, category badge, status
+- Analysis runs list (inline) — List of analysis runs with status/verdict badges
 - Action buttons: "Re-analyze", "Edit Idea", "Delete"
+
+Note: Summary and analysis list are rendered inline in the page component. No separate `VersionTimeline` or `AnalysisRunsList` component files exist.
 
 **States:**
 - No analyses: show "Run your first analysis" CTA
@@ -206,13 +211,15 @@ References:
 **Purpose:** Answer AI-generated clarification questions before analysis proceeds.
 
 **Components:**
-- `ClarificationHeader` — Explanation of why questions are being asked
+- Clarification header (inline) — Explanation of why questions are being asked
+- `VaguenessBlocker` — Full-width amber banner shown when `vagueness_score >= 0.7` (DEC-021). Explains why clarification is mandatory. Displayed above question list.
 - `QuestionList` — Each question with text input and dimension label
-- `SkipOption` — "Skip and proceed with assumptions" button
+- `SkipOption` — "Skip and proceed with assumptions" button. **Hidden when vagueness-blocked** (DEC-021).
 - `SubmitButton` — Submit answers
 
 **States:**
 - Default: questions displayed, inputs empty
+- Vagueness-blocked: `VaguenessBlocker` banner shown, skip button hidden, must answer before proceeding
 - Partially answered: some fields filled
 - Loading: submitting answers
 - Success: redirect to progress page
@@ -226,9 +233,10 @@ References:
 **Purpose:** Real-time progress tracking during analysis.
 
 **Components:**
-- `ProgressTracker` — Vertical stepper showing 7 pipeline steps
-- `StepStatus` — Per-step: pending / active (spinner) / completed (check) / failed (X)
-- `CurrentStepDetail` — Brief description of what's happening now
+- Progress tracker (inline) — Vertical stepper showing 7 pipeline steps with per-step status indicators
+- Each step shows: pending / active (spinner) / completed (check) / failed (X) with description
+
+Note: Progress tracking is implemented inline in the page component, not as separate component files.
 
 **States:**
 - In progress: current step highlighted, previous steps checked
@@ -256,9 +264,12 @@ References:
 4. `ReasoningSection` — Narrative organized by dimension. Evidence references inline (clickable).
 5. `AssumptionsPanel` — List of assumptions. Tagged: "user-stated" (blue badge) or "inferred" (amber badge).
 6. `FlagsList` — Two columns: Red Flags (left) | Green Flags (right). Each with icon + text + evidence link.
-7. `EvidenceExplorer` — Tabbed by source type (v1: HackerNews | LLM Analysis). Filterable by dimension. Each item shows source, summary, link. Tabs expand as signal providers are added (DEC-011).
-8. `NextStepsPanel` — Ordered action items. Contextual per verdict type.
-9. `ShareExportBar` — Sticky bottom bar: Copy Share Link, Re-run Analysis, Compare with Another. No PDF export button in v1 (DEC-014).
+7. `EvidenceExplorer` — Tabbed by source type: Web Search | HackerNews | Google Trends | LLM Analysis. Filterable by dimension. Each item shows source, summary, link, and `EvidenceBadge` (verified/unverified — DEC-022). Tabs expand as signal providers are added (DEC-011).
+8. `PaywallOverlay` — Blurred overlay for report sections in preview/teaser mode. Shows lock icon and "Get Full Report" CTA. Used on Quick Roast upsell flow (DEC-023).
+9. `ClarificationAnswers` — Shows founder's Q&A pairs with dimension badges (DEC-026)
+10. `PDFExportButton` — Dynamic import trigger for PDF generation (DEC-027)
+11. `NextStepsPanel` — Ordered action items. Contextual per verdict type.
+12. `ShareExportBar` — Sticky bottom bar: Copy Share Link, Re-run Analysis, Compare with Another, Export PDF (DEC-027).
 
 **States:**
 - Loading: skeleton loaders for all sections
@@ -302,7 +313,7 @@ References:
 **Purpose:** View and update profile info.
 
 **Components:**
-- `ProfileForm` — Display name, email (read-only), avatar
+- `ProfileForm` — Display name, email (read-only), avatar, email notification toggle (DEC-030)
 - `DangerZone` — Delete account (links to Supabase account deletion)
 
 **API dependencies:** `GET /api/user/profile`, `PATCH /api/user/profile`
@@ -315,13 +326,12 @@ References:
 
 **Components:**
 - `CreditBalanceCard` — Current balance, plan badge
-- `CreditPackages` — 3 package cards with Razorpay buy buttons
-- `RazorpayCheckout` — Loads Razorpay script, triggers checkout popup
+- `CreditPackages` — 3 package cards with Stripe Checkout buy buttons
 - `TransactionHistory` — Table of credit transactions
 
 **States:**
 - Default: balance + packages + history
-- Purchasing: Razorpay popup open
+- Purchasing: Stripe Checkout redirect in progress
 - Success: toast "Credits added!", balance updated
 - History empty: "No transactions yet"
 
@@ -355,7 +365,8 @@ References:
 
 **Components:**
 - `RoastResult` — first_impression, biggest_flaw, what_to_clarify
-- `CTABanner` — "Get your own roast" linking to `/`
+- `ReportPreview` — Blurred/skeleton preview of full report sections with `PaywallOverlay` (DEC-023). Shows what a full analysis would reveal, driving signup conversion.
+- `CTABanner` — "Get the full report" linking to `/signup` (or `/ideas/new` for authenticated users)
 
 **API dependencies:** `GET /api/share/[slug]`
 
@@ -367,8 +378,8 @@ All admin pages use `AdminSidebar` navigation and require `admin` role.
 
 | Route | Components | Key Data |
 |-------|-----------|----------|
-| `/admin` | `MetricsGrid` (cards: users, ideas, analyses, verdicts, active signal providers), `VerdictDistributionChart` | `GET /api/admin/metrics` |
-| `/admin/prompts` | `PromptEditor` (code editor), `PromptVersionList` | `GET/PATCH /api/admin/prompts` |
+| `/admin` | `MetricsGrid` (cards: users, ideas, analyses, verdicts, active signal providers) | `GET /api/admin/metrics` |
+| `/admin/prompts` | `PromptEditor` (key-value settings editor) | `GET/PATCH /api/admin/prompts` |
 | `/admin/jobs` | `JobTable` (filterable by status), retry button per job | `GET /api/admin/jobs` |
 | `/admin/analytics` | Conversion funnels, verdict distributions, signal quality | `GET /api/admin/metrics` |
 | `/admin/users` | `UserTable` (search by email), credit adjustment form | `GET /api/admin/users` |
@@ -412,3 +423,14 @@ All admin pages use `AdminSidebar` navigation and require `admin` role.
 - Product links: Pricing, Sign In
 - Legal links: Privacy, Terms (placeholder pages)
 - "Built with Kill My Idea" tagline
+
+---
+
+## Error Pages
+
+**Error Pages (DEC-028):**
+Each route group has its own `error.tsx` with contextual messaging:
+- `(app)/error.tsx` — "Something went wrong" + retry + link to dashboard
+- `(auth)/error.tsx` — "Authentication error" + retry + link to signin
+- `(marketing)/error.tsx` — "Page error" + retry + link to home
+- `(admin)/admin/error.tsx` — "Admin error" + retry + link to admin dashboard

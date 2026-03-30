@@ -28,7 +28,9 @@ auth.users (Supabase managed)
             │                       │
             │                       └──< share_links (1:N)
             │
-            └──< credit_transactions (1:N)
+            ├──< credit_transactions (1:N)
+            │
+            └──< feedback (1:N)
 
 admin_settings (standalone key-value store)
 ```
@@ -67,9 +69,9 @@ admin_settings (standalone key-value store)
 
 ### Signal Source Type
 ```
-'hackernews'
+'hackernews' | 'llm_knowledge' | 'serper' | 'google_trends'
 ```
-> v1 supports HackerNews only (DEC-011, DEC-012). The enum can be expanded later when additional signal providers are added (e.g., `'google_trends'`, `'serp'`). Keep the check constraint easy to modify.
+> v1 launched with HackerNews only. Migration 002 expanded to include `llm_knowledge`, `serper`, and `google_trends` (DEC-018, DEC-019).
 
 ### Signal Category (maps to scoring dimensions)
 ```
@@ -116,12 +118,16 @@ Extends Supabase `auth.users`. Auto-created on signup via trigger.
 | plan | text | no | 'free' | Check: valid plan enum | |
 | credit_balance | integer | no | 0 | Check: >= 0 | Atomic updates only |
 | avatar_url | text | yes | null | | Profile picture URL |
+| email_notifications | boolean | no | true | | Email opt-out (DEC-030) |
 | created_at | timestamptz | no | now() | | |
 | updated_at | timestamptz | no | now() | | Auto-updated by trigger |
 
+**Indexes:**
+- `profiles_email_idx` on email
+
 **RLS policies:**
 - SELECT: users can read own profile; admins can read all
-- UPDATE: users can update own profile (except role, plan, credit_balance); admins can update all
+- UPDATE: users can update own profile (`auth.uid() = id`). **Note:** Column-level restrictions on role, plan, and credit_balance are enforced at the API layer (`PATCH /api/user/profile` only accepts `display_name`), not by RLS. Admin credit adjustments use service role.
 - INSERT: only via `handle_new_user()` trigger
 - DELETE: not allowed (soft delete not needed — auth.users handles account deletion)
 
@@ -154,7 +160,7 @@ A user's startup idea submission.
 
 **RLS policies:**
 - SELECT: users can read own ideas; admins can read all
-- INSERT: authenticated users; or anonymous for Quick Roast (user_id = null)
+- INSERT: authenticated users only (`auth.uid() = user_id`). Anonymous Quick Roasts are created via service role in the API route, bypassing RLS.
 - UPDATE: users can update own ideas (except id, user_id, created_at)
 - DELETE: not allowed (use soft delete via deleted_at)
 
@@ -202,6 +208,9 @@ Versioned interpretations of an idea. Created each time the idea is analyzed or 
 ]
 ```
 
+**Indexes:**
+- `idea_versions_idea_id_idx` on idea_id
+
 **RLS:** Same as ideas (owner or admin).
 
 ---
@@ -228,6 +237,7 @@ Each execution of the analysis pipeline on an idea version.
 | override_applied | text | yes | null | | Which guardrail override triggered, if any |
 | override_reason | text | yes | null | | Why the override changed the verdict |
 | model_used | text | yes | null | | Which LLM was used (for debugging) |
+| completed_steps | integer[] | no | '{}' | | Steps completed for retry (DEC-024) |
 | credits_charged | integer | no | 0 | | Credits deducted for this run |
 | error | text | yes | null | | Error message if status = 'failed' |
 | started_at | timestamptz | yes | null | | When processing started |
@@ -265,13 +275,16 @@ Raw market signal data collected during analysis.
 |--------|------|----------|---------|-------------|-------|
 | id | uuid | no | gen_random_uuid() | PK | |
 | analysis_run_id | uuid | no | — | FK → analysis_runs.id | |
-| source_type | text | no | — | Check: valid source type enum | v1: hackernews only (DEC-011) |
+| source_type | text | no | — | Check: in ('hackernews', 'llm_knowledge', 'serper', 'google_trends') | See migration 002 (DEC-018, DEC-019) |
 | signal_category | text | yes | null | Check: valid signal category enum | Which scoring dimension this maps to |
 | raw_data | jsonb | no | — | | Unprocessed API response (trimmed) |
 | normalized_summary | text | yes | null | | AI-generated or extracted summary |
 | signal_strength | numeric(3,2) | yes | null | | 0.00 - 1.00 (set in step 4) |
 | source_url | text | yes | null | | Link to source for traceability |
 | created_at | timestamptz | no | now() | | |
+
+**Indexes:**
+- `signal_evidence_analysis_run_id_idx` on analysis_run_id
 
 **RLS:** Read-only access for idea owner. Admin can read all.
 
@@ -318,9 +331,16 @@ Generated analysis reports. One report per completed analysis run.
     { "action": "string", "priority": 1, "type": "test | refine | validate | build" }
   ],
   "weaknesses": "string",
-  "strengthening_suggestions": "string"
+  "strengthening_suggestions": "string",
+  "clarification_qa": [
+    { "question": "string", "answer": "string", "dimension": "demand" }
+  ]
 }
 ```
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| clarification_qa | ClarificationQA[] | optional | Founder's answers to clarification questions (DEC-026) |
 
 **`quick_roast_teaser` JSONB shape:**
 ```json
@@ -330,6 +350,9 @@ Generated analysis reports. One report per completed analysis run.
   "what_to_clarify": "string"
 }
 ```
+
+**Indexes:**
+- `reports_idea_id_idx` on idea_id
 
 **RLS:** Read-only for idea owner. Public read via share_links (separate query path). Admin can read all.
 
@@ -348,15 +371,18 @@ Ledger of all credit changes. Immutable — never update or delete rows.
 | balance_after | integer | no | — | | Snapshot of balance after this transaction |
 | description | text | yes | null | | Human-readable reason |
 | analysis_run_id | uuid | yes | null | FK → analysis_runs.id | For deductions |
-| razorpay_order_id | text | yes | null | | For purchases |
-| razorpay_payment_id | text | yes | null | | For purchases |
+| razorpay_order_id | text | yes | null | | Legacy name; stores Stripe payment_intent ID |
+| razorpay_payment_id | text | yes | null | | Legacy name; stores Stripe session ID |
 | created_at | timestamptz | no | now() | | |
+
+**Indexes:**
+- `credit_transactions_user_id_created_at_idx` on (user_id, created_at DESC)
 
 **RLS:** Users can read own transactions. Admins can read all and insert adjustments.
 
 **Important:** Credit deduction must be atomic. Use a database function:
 ```sql
-deduct_credits(p_user_id uuid, p_amount integer, p_analysis_run_id uuid)
+deduct_credits(p_user_id uuid, p_amount integer, p_description text DEFAULT 'Analysis credit', p_analysis_run_id uuid DEFAULT null)
 ```
 This function should: check balance >= amount, deduct, insert transaction row, all in a single transaction.
 
@@ -375,6 +401,9 @@ Public share links for reports and quick roasts.
 | view_count | integer | no | 0 | | Incremented on view |
 | expires_at | timestamptz | yes | null | | Optional expiry |
 | created_at | timestamptz | no | now() | | |
+
+**Indexes:**
+- `share_links_report_id_idx` on report_id
 
 **RLS:** Owner can create/read. Public can read by slug (for viewing shared reports). Admin can read all.
 
@@ -408,6 +437,26 @@ INSERT INTO admin_settings (key, value) VALUES
 
 ---
 
+### `feedback`
+
+User-submitted quality reports on analysis results (DEC-039).
+
+| Column | Type | Nullable | Default | Constraints | Notes |
+|--------|------|----------|---------|-------------|-------|
+| id | uuid | no | gen_random_uuid() | PK | |
+| user_id | uuid | no | — | FK → profiles.id | |
+| analysis_run_id | uuid | yes | null | FK → analysis_runs.id | Optional link to specific analysis |
+| type | text | no | — | Check: 'inaccurate' / 'unhelpful' / 'other' | |
+| message | text | yes | null | max 2000 chars | Free-text feedback |
+| created_at | timestamptz | no | now() | | |
+
+**RLS policies:**
+- INSERT: authenticated users can insert own feedback (`user_id = auth.uid()`)
+- SELECT: admin only (for review via moderation queue)
+- UPDATE/DELETE: not allowed
+
+---
+
 ## Database Functions
 
 ### `update_updated_at()`
@@ -421,7 +470,9 @@ Trigger on `auth.users` INSERT. Creates a corresponding `profiles` row with:
 - `plan` = 'free'
 - `credit_balance` = value from `admin_settings.free_signup_credits`
 
-### `deduct_credits(p_user_id uuid, p_amount integer, p_description text, p_analysis_run_id uuid)`
+Also inserts a `credit_transactions` row with type `'signup_bonus'`, recording the initial credit grant.
+
+### `deduct_credits(p_user_id uuid, p_amount integer, p_description text DEFAULT 'Analysis credit', p_analysis_run_id uuid DEFAULT null)`
 Atomic credit deduction:
 1. SELECT `credit_balance` FROM `profiles` WHERE `id = p_user_id` FOR UPDATE
 2. If balance < amount, raise exception
@@ -429,7 +480,7 @@ Atomic credit deduction:
 4. INSERT into `credit_transactions` with type='deduction', balance_after, analysis_run_id
 5. RETURN new balance
 
-### `add_credits(p_user_id uuid, p_amount integer, p_description text, p_razorpay_order_id text, p_razorpay_payment_id text)`
+### `add_credits(p_user_id uuid, p_amount integer, p_description text DEFAULT 'Credit purchase', p_razorpay_order_id text DEFAULT null, p_razorpay_payment_id text DEFAULT null)`
 Atomic credit addition (for purchases and adjustments):
 1. UPDATE `profiles` SET `credit_balance = credit_balance + p_amount`
 2. INSERT into `credit_transactions` with type='purchase', balance_after, razorpay fields
@@ -439,11 +490,15 @@ Atomic credit addition (for purchases and adjustments):
 
 ## Migration Notes
 
-- **Migration 001** creates all tables, enums (as check constraints, not PG enums — easier to modify), triggers, functions, indexes, and RLS policies.
+- **Migration 001** (`001_initial_schema.sql`): Creates all tables, enums (as check constraints), triggers, functions, indexes, and RLS policies.
+- **Migration 002** (`002_tier1_signal_sources.sql`): Expands `signal_evidence.source_type` CHECK to include `llm_knowledge`, `serper`, `google_trends` (DEC-018, DEC-019).
+- **Migration 003** (`003_tier2_error_recovery.sql`): Adds `completed_steps integer[]` to `analysis_runs` for retry support (DEC-024).
+- **Migration 004** (`004_tier2_email_notifications.sql`): Adds `email_notifications boolean` to `profiles` (DEC-030).
+- **Migration 005** (`005_tier3_indexes.sql`): Adds 6 performance indexes on hot columns (DEC-034).
+- **Migration 006** (`006_tier4_feedback.sql`): Creates `feedback` table with RLS policies (DEC-039).
 - All tables use `uuid` primary keys generated by `gen_random_uuid()`.
 - All timestamps are `timestamptz` (timezone-aware).
 - JSONB columns should have application-level validation (Zod schemas) since PostgreSQL doesn't validate JSONB structure.
-- Future migrations should be numbered sequentially: `002_*.sql`, `003_*.sql`, etc.
 
 ---
 
@@ -460,6 +515,7 @@ Atomic credit addition (for purchases and adjustments):
 | credit_transactions | No | Immutable ledger |
 | share_links | No | Can expire via `expires_at` |
 | admin_settings | No | Key-value store, overwrite not delete |
+| feedback | No | Immutable quality reports |
 
 ---
 
@@ -470,5 +526,4 @@ Atomic credit addition (for purchases and adjustments):
 - `[ASSUMPTION]` `quick_roast_teaser` is stored separately from `content` for easier access on the marketing Quick Roast flow.
 - `[ASSUMPTION]` `signal_evidence.raw_data` stores trimmed API responses (not full payloads) to stay within Supabase free tier storage.
 - `[RESOLVED]` Free credits on signup = 3 (DEC-010).
-- `[RESOLVED]` Signal source type enum = `hackernews` only for v1 (DEC-011, DEC-012).
 - `[RESOLVED]` Category classification uses LLM inline, not separate ML model (DEC-016).
